@@ -575,4 +575,18 @@ def main():
     app.add_handler(TypeHandler(Update, force_join), group=-1)
     app.job_queue.run_repeating(check_leavers, interval=CHECK_EVERY, first=60)
 
-    app.add_handler(CommandHandler("start", start
+    app.add_handler(CommandHandler("start", startapp.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("admin", admin_panel))
+    app.add_handler(CommandHandler("addcoins", cmd_addcoins))
+    app.add_handler(CommandHandler("broadcast", cmd_broadcast))
+    app.add_handler(CommandHandler("addadmin", cmd_addadmin))
+    app.add_handler(CommandHandler("deladmin", cmd_deladmin))
+    app.add_handler(CallbackQueryHandler(on_check, pattern=r"^chk:\d+$"))
+    app.add_handler(CallbackQueryHandler(on_next, pattern=r"^next$"))
+    app.add_handler(CallbackQueryHandler(on_cancel, pattern=r"^cx:\d+$"))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
+    app.run_polling()
+
+
+if __name__ == "__main__":
+    main()
