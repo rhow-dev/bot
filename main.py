@@ -557,7 +557,7 @@ async def send_payment_to(context, admin_ids, pid):
                     aid, p["file_id"], caption=payment_caption(p), reply_markup=kb
                 )
             sent += 1
-exc        except Exception:
+        except Exception:
             pass
     return sent
 
