@@ -191,7 +191,7 @@ async def is_member(bot, uid):
         m = await bot.get_chat_member(FORCE_CHANNEL, uid)
         return m.status in ("member", "administrator", "creator")
     except Exception:
-        return Falsecon:
+                return False
         order = con.execute("SELECT * FROM orders WHERE id=?", (order_id,)).fetchone()
     if not order or not order["active"]:
         await q.answer("این سفارش دیگر فعال نیست.", show_alert=True)
