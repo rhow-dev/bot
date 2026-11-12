@@ -12,25 +12,23 @@ from telegram.ext import (
 
 logging.basicConfig(level=logging.INFO)
 
-TOKEN = os.getenv("BOT_TOKEN", "9221180526:AAGXly8l7LFMbg1UY4vTfoc-o7EdcZE37sA")
+TOKEN = os.getenv("9221180526:AAGXly8l7LFMbg1UY4vTfoc-o7EdcZE37sA")
 DB_PATH = os.getenv("DB_PATH", "bot.db")
 
-FORCE_CHANNEL = "@NULLVASET"        # کانال اجباری
-DEFAULT_ADMINS = [7281188442]       # مدیر اصلی
-REWARD = 1                          # سکهی هر عضویت
-PRICE = 2                           # هزینهی هر عضو سفارشی (سکه)
-WELCOME_COINS = 20                  # سکهی هدیه برای هر کاربر جدید
-REFERRAL_REWARD = 10                # سکهی دعوت برای کسی که یک نفر را دعوت می‌کند
-PENALTY = 7                         # جریمهی خروج از کانال (سکه)
-CHECK_EVERY = 600                   # هر چند ثانیه یک دسته چک شود
-CHECK_BATCH = 200                   # در هر نوبت چند عضویت چک شود
+FORCE_CHANNEL = "@NULLVASET"
+DEFAULT_ADMINS = [7281188442]
+REWARD = 1
+PRICE = 2
+WELCOME_COINS = 20
+REFERRAL_REWARD = 10
+PENALTY = 7
+CHECK_EVERY = 600
+CHECK_BATCH = 200
 
-# ---------- تنظیمات خرید سکه ----------
 CARD_NUMBER = "5859-8312-0689-7943"
 CARD_OWNER = "غفوری"
 SUPPORT_ID = "@VERATHB"
 
-# (تعداد سکه، قیمت به تومان)
 PACKAGES = [
     (100, 50000),
     (500, 100000),
@@ -52,7 +50,6 @@ BTN_ADMIN = "🛠 مدیریت"
 MENU_BUTTONS = {BTN_EARN, BTN_ORDER, BTN_ACCOUNT, BTN_ORDERS, BTN_BUY, BTN_SUPPORT, BTN_REF, BTN_ADMIN}
 
 
-# ---------- دیتابیس ----------
 def db():
     con = sqlite3.connect(DB_PATH)
     con.row_factory = sqlite3.Row
@@ -95,7 +92,6 @@ def init_db():
                 created_at INTEGER NOT NULL DEFAULT 0);
             """
         )
-        # مایگریشن برای دیتابیس‌های قدیمی
         for table, col in (
             ("joins", "joined_at INTEGER NOT NULL DEFAULT 0"),
             ("joins", "penalized INTEGER NOT NULL DEFAULT 0"),
@@ -125,11 +121,10 @@ def get_coins(uid):
 
 
 def register_user(uid, ref=None):
-    """کاربر جدید را با سکه‌ی هدیه ثبت می‌کند. اگر با لینک دعوت آمده، به دعوت‌کننده پاداش می‌دهد.
-    آیدی دعوت‌کننده را برمی‌گرداند (برای اطلاع‌رسانی) یا None."""
+    """ثبت کاربر جدید و پاداش دعوت."""
     with db() as con:
         if con.execute("SELECT 1 FROM users WHERE id=?", (uid,)).fetchone():
-            return None  # قبلاً ثبت شده؛ پاداشی داده نمی‌شود
+            return None
         inviter = None
         if ref and ref != uid and con.execute("SELECT 1 FROM users WHERE id=?", (ref,)).fetchone():
             inviter = ref
@@ -192,7 +187,6 @@ def next_order(uid):
         ).fetchone()
 
 
-# ---------- عضویت اجباری ----------
 async def is_member(bot, uid):
     try:
         m = await bot.get_chat_member(FORCE_CHANNEL, uid)
@@ -213,7 +207,6 @@ async def force_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not user:
         return
     q = update.callback_query
-    # ذخیره‌ی لینک دعوت تا بعد از عضویت در کانال اجباری از دست نرود
     if update.message and update.message.text and update.message.text.startswith("/start"):
         r = parse_ref(update.message.text.split()[1:])
         if r:
@@ -240,7 +233,6 @@ async def force_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
     raise ApplicationHandlerStop
 
 
-# ---------- کاربران ----------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     ref = parse_ref(context.args) or context.user_data.get("ref")
@@ -447,9 +439,7 @@ async def order_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "ربات را اول در کانالت «ادمین» کن، بعد یوزرنیم کانال را بفرست (مثل @mychannel).\n"
         "برای لغو: /start"
     )
-
-
-# ---------- خرید سکه (کارت به کارت) ----------
+    # ---------- خرید سکه (کارت به کارت) ----------
 async def buy_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     rows = [
         [InlineKeyboardButton(f"🪙 {c} سکه — {p:,} تومان", callback_data=f"buy:{i}")]
@@ -479,202 +469,176 @@ async def on_buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if idx < 0 or idx >= len(PACKAGES):
         return
     coins, price = PACKAGES[idx]
-    context.user_data.clear()
-    context.user_data.update(state="receipt", pkg=idx)
+    context.user_data["buy_package"] = (coins, price)
     await q.message.reply_text(
-        f"🪙 بسته‌ی انتخابی: {coins} سکه\n"
-        f"💵 مبلغ: {price:,} تومان\n\n"
-        f"💳 شماره کارت:\n{CARD_NUMBER}\n"
-        f"👤 به نام: {CARD_OWNER}\n\n"
-        "بعد از واریز، «عکس رسید» را همینجا بفرست.\n"
-        f"🆘 مشکل داشتی: {SUPPORT_ID}\n"
-        "برای لغو: /start"
+        f"💳 بسته انتخابی: {coins} سکه\n"
+        f"مبلغ: {price:,} تومان\n\n"
+        f"شماره کارت:\n{CARD_NUMBER}\n"
+        f"به نام: {CARD_OWNER}\n\n"
+        "پس از پرداخت، تصویر رسید را همین‌جا ارسال کن."
     )
 
 
 async def on_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
-    uname = update.effective_user.username
-    msg = update.message
-    if context.user_data.get("state") != "receipt":
-        await msg.reply_text(
-            f"برای خرید سکه از «{BTN_BUY}» استفاده کن.", reply_markup=menu_for(uid)
-        )
+    package = context.user_data.get("buy_package")
+    if not package:
         return
-    if msg.photo:
-        file_id, is_photo = msg.photo[-1].file_id, 1
-    elif msg.document:
-        file_id, is_photo = msg.document.file_id, 0
-    else:
+    coins, price = package
+    photo = update.message.photo[-1].file_id if update.message.photo else None
+    document = update.message.document.file_id if update.message.document else None
+    receipt = photo or document
+    if not receipt:
         return
-    idx = context.user_data.get("pkg", 0)
-    coins, price = PACKAGES[idx]
     with db() as con:
         cur = con.execute(
-            "INSERT INTO payments(user_id, username, coins, price, file_id, is_photo, status, created_at) "
-            "VALUES(?,?,?,?,?,?,'pending',strftime('%s','now'))",
-            (uid, uname, coins, price, file_id, is_photo),
+            "INSERT INTO payments(user_id, coins, price, receipt, status) "
+            "VALUES(?, ?, ?, ?, 'pending')",
+            (uid, coins, price, receipt),
         )
-        pid = cur.lastrowid
-    context.user_data.clear()
-    await msg.reply_text(
-        "✅ رسیدت ثبت شد و برای مدیر ارسال شد.\n"
-        "بعد از تایید، سکه‌ها به حسابت اضافه می‌شود و خبرت می‌کنم.",
-        reply_markup=menu_for(uid),
+        payment_id = cur.lastrowid
+    context.user_data.pop("buy_package", None)
+    await update.message.reply_text(
+        "✅ رسیدت ثبت شد. بعد از بررسی مدیر، نتیجه بهت اطلاع داده می‌شه."
     )
-    await send_payment_to(context, list(all_admin_ids()), pid)
-
-
-def payment_caption(p):
-    uname = p["username"]
-    user_line = f"@{uname}" if uname else f"(بدون یوزرنیم) {p['user_id']}"
-    return (
-        f"💳 درخواست خرید #{p['id']}\n"
-        f"👤 کاربر: {user_line}\n"
-        f"🪙 {p['coins']} سکه\n"
-        f"💵 {p['price']:,} تومان"
-    )
-
-
-async def send_payment_to(context, admin_ids, pid):
-    with db() as con:
-        p = con.execute("SELECT * FROM payments WHERE id=?", (pid,)).fetchone()
-    if not p:
-        return 0
-    kb = InlineKeyboardMarkup([[
-        InlineKeyboardButton("تایید ✅", callback_data=f"pay_ok:{pid}"),
-        InlineKeyboardButton("رد ❌", callback_data=f"pay_no:{pid}"),
-    ]])
-    sent = 0
-    for aid in admin_ids:
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("✅ تایید", callback_data=f"pay_ok:{payment_id}"),
+            InlineKeyboardButton("❌ رد", callback_data=f"pay_no:{payment_id}"),
+        ]
+    ])
+    for admin_id in get_admins():
         try:
-            if p["is_photo"]:
+            if photo:
                 await context.bot.send_photo(
-                    aid, p["file_id"], caption=payment_caption(p), reply_markup=kb
+                    chat_id=admin_id,
+                    photo=photo,
+                    caption=f"🧾 رسید پرداخت جدید\nشناسه: {payment_id}\n"
+                            f"کاربر: {uid}\nسکه: {coins}\nمبلغ: {price:,} تومان",
+                    reply_markup=keyboard,
                 )
             else:
                 await context.bot.send_document(
-                    aid, p["file_id"], caption=payment_caption(p), reply_markup=kb
+                    chat_id=admin_id,
+                    document=document,
+                    caption=f"🧾 رسید پرداخت جدید\nشناسه: {payment_id}\n"
+                            f"کاربر: {uid}\nسکه: {coins}\nمبلغ: {price:,} تومان",
+                    reply_markup=keyboard,
                 )
-            sent += 1
-                    except Exception:
+        except Exception:
             pass
-    return sent
 
 
 async def on_pay_review(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
-    admin_id = q.from_user.id
-    if not is_admin(admin_id):
-        await q.answer("فقط مدیر می‌تواند.", show_alert=True)
+    await q.answer()
+    if not is_admin(q.from_user.id):
+        await q.message.reply_text("⛔ دسترسی نداری.")
         return
-    action, pid = q.data.split(":")
-    pid = int(pid)
-    approve = action == "pay_ok"
+    action, payment_id = q.data.split(":")
+    payment_id = int(payment_id)
     with db() as con:
-        p = con.execute("SELECT * FROM payments WHERE id=?", (pid,)).fetchone()
-    if not p:
-        await q.answer("پیدا نشد.", show_alert=True)
-        return
-    ensure_user(p["user_id"])
-    new_status = "approved" if approve else "rejected"
-    with db() as con:
-        cur = con.execute(
-            "UPDATE payments SET status=? WHERE id=? AND status='pending'", (new_status, pid)
-        )
-        if cur.rowcount == 0:
-            await q.answer("این درخواست قبلاً بررسی شده.", show_alert=True)
+        payment = con.execute(
+            "SELECT * FROM payments WHERE id=?", (payment_id,)
+        ).fetchone()
+        if not payment:
+            await q.message.reply_text("❌ پرداخت پیدا نشد.")
             return
-        if approve:
+        if payment["status"] != "pending":
+            await q.message.reply_text("این پرداخت قبلاً بررسی شده است.")
+            return
+        if action == "pay_ok":
             con.execute(
-                "UPDATE users SET coins=coins+? WHERE id=?", (p["coins"], p["user_id"])
+                "UPDATE payments SET status='approved' WHERE id=?", (payment_id,)
             )
-    label = "✅ تایید شد" if approve else "❌ رد شد"
-    await q.answer(label, show_alert=True)
-    try:
-        await q.edit_message_caption(
-            caption=f"{payment_caption(p)}\n\n{label} (مدیر: {admin_id})"
-        )
-    except Exception:
-        pass
-    try:
-        if approve:
-            await context.bot.send_message(
-                p["user_id"],
-                f"🎉 خریدت تایید شد!\n{p['coins']} سکه به حسابت اضافه شد.\n"
-                f"💰 موجودی فعلی: {get_coins(p['user_id'])} سکه",
+            con.execute(
+                "UPDATE users SET coins=coins+? WHERE user_id=?",
+                (payment["coins"], payment["user_id"]),
             )
         else:
-            await context.bot.send_message(
-                p["user_id"],
-                "❌ رسیدت تایید نشد. اگر اشتباه شده، دوباره از «خرید سکه» رسید درست بفرست "
-                f"یا با پشتیبانی تماس بگیر: {SUPPORT_ID}",
+            con.execute(
+                "UPDATE payments SET status='rejected' WHERE id=?", (payment_id,)
             )
-    except Exception:
-        pass
+    if action == "pay_ok":
+        try:
+            await context.bot.send_message(
+                payment["user_id"],
+                f"🎉 پرداختت تایید شد و {payment['coins']} سکه به حسابت اضافه شد."
+            )
+        except Exception:
+            pass
+        await q.message.reply_text("✅ پرداخت تایید شد.")
+    else:
+        try:
+            await context.bot.send_message(
+                payment["user_id"],
+                "❌ رسید پرداختت تایید نشد. برای پیگیری با پشتیبانی تماس بگیر."
+            )
+        except Exception:
+            pass
+        await q.message.reply_text("❌ پرداخت رد شد.")
+
+
+# ---------- پنل مدیریت ----------
+async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("⛔ دسترسی نداری.")
+        return
+    await update.message.reply_text(
+        "🛠 پنل مدیریت\n\n"
+        "/pending - پرداخت‌های در انتظار\n"
+        "/addcoins - افزودن سکه\n"
+        "/broadcast - ارسال پیام همگانی\n"
+        "/addadmin - افزودن مدیر\n"
+        "/deladmin - حذف مدیر"
+    )
 
 
 async def cmd_pending(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = update.effective_user.id
-    if not is_admin(uid):
-        return
-    with db() as con:
-        ids = [r["id"] for r in con.execute(
-            "SELECT id FROM payments WHERE status='pending' ORDER BY id").fetchall()]
-    if not ids:
-        await update.message.reply_text("رسید در انتظاری نیست ✅")
-        return
-    for pid in ids:
-        await send_payment_to(context, [uid], pid)
-
-
-# ---------- مدیریت ----------
-async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
         return
     with db() as con:
-        users = con.execute("SELECT COUNT(*) c FROM users").fetchone()["c"]
-        total = con.execute("SELECT COUNT(*) c FROM orders").fetchone()["c"]
-        active = con.execute("SELECT COUNT(*) c FROM orders WHERE active=1").fetchone()["c"]
-        joins = con.execute("SELECT COUNT(*) c FROM joins").fetchone()["c"]
-        penal = con.execute("SELECT COUNT(*) c FROM joins WHERE penalized=1").fetchone()["c"]
-        pend = con.execute("SELECT COUNT(*) c FROM payments WHERE status='pending'").fetchone()["c"]
-        sold = con.execute(
-            "SELECT COALESCE(SUM(price),0) s FROM payments WHERE status='approved'"
-        ).fetchone()["s"]
-    await update.message.reply_text(
-        "🛠 پنل مدیریت\n\n"
-        f"👥 کاربران: {users}\n"
-        f"📦 کل سفارش‌ها: {total}\n"
-        f"🟢 سفارش‌های فعال: {active}\n"
-        f"✅ کل عضویت‌های انجام‌شده: {joins}\n"
-        f"⚠️ جریمه‌شده‌ها (خروج): {penal}\n"
-        f"🧾 رسیدهای در انتظار: {pend}\n"
-        f"💰 مجموع فروش تاییدشده: {sold:,} تومان\n\n"
-        "دستورها:\n"
-        "/pending ← نمایش رسیدهای در انتظار تایید\n"
-        "/addcoins آیدی_عددی تعداد ← افزودن/کسر سکه (عدد منفی = کسر)\n"
-        "/broadcast متن ← ارسال پیام به همه‌ی کاربران\n"
-        "/addadmin آیدی_عددی ← افزودن مدیر (فقط مدیر اصلی)\n"
-        "/deladmin آیدی_عددی ← حذف مدیر (فقط مدیر اصلی)"
-    )
+        rows = con.execute(
+            "SELECT * FROM payments WHERE status='pending' ORDER BY id DESC LIMIT 20"
+        ).fetchall()
+    if not rows:
+        await update.message.reply_text("پرداخت در انتظاری وجود ندارد.")
+        return
+    for row in rows:
+        await update.message.reply_text(
+            f"🧾 پرداخت شماره {row['id']}\n"
+            f"کاربر: {row['user_id']}\n"
+            f"سکه: {row['coins']}\n"
+            f"مبلغ: {row['price']:,} تومان"
+        )
 
 
 async def cmd_addcoins(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
         return
-    try:
-        target = int(context.args[0])
-        amount = int(context.args[1])
-    except Exception:
-        await update.message.reply_text("فرمت درست:\n/addcoins آیدی_عددی تعداد")
+    if len(context.args) != 2:
+        await update.message.reply_text(
+            "فرمت دستور:\n/addcoins USER_ID AMOUNT"
+        )
         return
-    ensure_user(target)
-    with db() as con:
-        con.execute("UPDATE users SET coins=MAX(coins+?,0) WHERE id=?", (amount, target))
-    await update.message.reply_text(f"✅ انجام شد. موجودی جدید: {get_coins(target)} سکه")
     try:
-        await context.bot.send_message(target, f"💰 مدیریت {amount:+d} سکه به حسابت اضافه/کم کرد.")
+        user_id = int(context.args[0])
+        amount = int(context.args[1])
+        if amount <= 0:
+            raise ValueError
+    except ValueError:
+        await update.message.reply_text("❌ اطلاعات واردشده معتبر نیست.")
+        return
+    with db() as con:
+        con.execute(
+            "UPDATE users SET coins=coins+? WHERE user_id=?",
+            (amount, user_id),
+        )
+    await update.message.reply_text("✅ سکه‌ها اضافه شدند.")
+    try:
+        await context.bot.send_message(
+            user_id, f"🎁 {amount} سکه به حسابت اضافه شد."
+        )
     except Exception:
         pass
 
@@ -682,44 +646,138 @@ async def cmd_addcoins(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
         return
-    msg = " ".join(context.args).strip()
-    if not msg:
-        await update.message.reply_text("فرمت درست:\n/broadcast متن پیام")
+    message = " ".join(context.args)
+    if not message:
+        await update.message.reply_text(
+            "متن پیام را بعد از دستور بنویس.\n/broadcast متن پیام"
+        )
         return
     with db() as con:
-        ids = [r["id"] for r in con.execute("SELECT id FROM users").fetchall()]
-    ok = 0
-    for i in ids:
+        users = con.execute("SELECT user_id FROM users").fetchall()
+    sent = 0
+    for row in users:
         try:
-            await context.bot.send_message(i, msg)
-            ok += 1
+            await context.bot.send_message(row["user_id"], message)
+            sent += 1
         except Exception:
             pass
-        await asyncio.sleep(0.05)
-    await update.message.reply_text(f"📨 برای {ok} از {len(ids)} نفر ارسال شد.")
+    await update.message.reply_text(f"✅ پیام برای {sent} کاربر ارسال شد.")
 
 
 async def cmd_addadmin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in SUPER_ADMINS:
+    if not is_admin(update.effective_user.id):
+        return
+    if len(context.args) != 1:
+        await update.message.reply_text("/addadmin USER_ID")
         return
     try:
-        target = int(context.args[0])
-    except Exception:
-        await update.message.reply_text("فرمت درست:\n/addadmin آیدی_عددی")
+        user_id = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("شناسه کاربر معتبر نیست.")
         return
     with db() as con:
-        con.execute("INSERT OR IGNORE INTO admins(id) VALUES(?)", (target,))
-    await update.message.reply_text(f"✅ {target} مدیر شد.")
+        con.execute(
+            "INSERT OR IGNORE INTO admins(user_id) VALUES(?)", (user_id,)
+        )
+    await update.message.reply_text("✅ مدیر اضافه شد.")
 
 
 async def cmd_deladmin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in SUPER_ADMINS:
+    if not is_admin(update.effective_user.id):
+        return
+    if len(context.args) != 1:
+        await update.message.reply_text("/deladmin USER_ID")
         return
     try:
-        target = int(context.args[0])
-    except Exception:
-        await update.message.reply_text("فرمت درست:\n/deladmin آیدی_عددی")
+        user_id = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("شناسه کاربر معتبر نیست.")
+        return
+    if user_id == update.effective_user.id:
+        await update.message.reply_text("نمی‌توانی خودت را حذف کنی.")
         return
     with db() as con:
-        con.execute("DELETE FROM admins WHERE id=?", (target,))
-    await update.message.reply_text(f"✅ {target} از مدیران حذف شد.")
+        con.execute("DELETE FROM admins WHERE user_id=?", (user_id,))
+    await update.message.reply_text("✅ مدیر حذف شد.")
+
+
+# ---------- پیام‌های متنی ----------
+async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    uid = update.effective_user.id
+
+    if text == "🪙 خرید سکه":
+        await buy_menu(update, context)
+        return
+
+    if text == "👤 حساب کاربری":
+        with db() as con:
+            user = con.execute(
+                "SELECT * FROM users WHERE user_id=?", (uid,)
+            ).fetchone()
+        if user:
+            await update.message.reply_text(
+                f"👤 حساب کاربری\n"
+                f"شناسه: {uid}\n"
+                f"🪙 موجودی سکه: {user['coins']}"
+            )
+        return
+
+    if text == "🆘 پشتیبانی":
+        await update.message.reply_text(
+            f"برای ارتباط با پشتیبانی:\n{SUPPORT_ID}"
+        )
+        return
+
+    await update.message.reply_text(
+        "از دکمه‌های منو استفاده کن."
+    )
+
+
+# ---------- بررسی کاربران خارج‌شده ----------
+async def check_leavers(context: ContextTypes.DEFAULT_TYPE):
+    with db() as con:
+        rows = con.execute(
+            "SELECT user_id FROM users WHERE active=1"
+        ).fetchall()
+    for row in rows:
+        try:
+            member = await context.bot.get_chat_member(
+                CHANNEL_ID, row["user_id"]
+            )
+            if member.status in ("left", "kicked"):
+                with db() as con:
+                    con.execute(
+                        "UPDATE users SET active=0 WHERE user_id=?",
+                        (row["user_id"],),
+                    )
+        except Exception:
+            pass
+
+
+# ---------- اجرای ربات ----------
+def main():
+    init_db()
+    app = Application.builder().token(TOKEN).build()
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("admin", admin_panel))
+    app.add_handler(CommandHandler("pending", cmd_pending))
+    app.add_handler(CommandHandler("addcoins", cmd_addcoins))
+    app.add_handler(CommandHandler("broadcast", cmd_broadcast))
+    app.add_handler(CommandHandler("addadmin", cmd_addadmin))
+    app.add_handler(CommandHandler("deladmin", cmd_deladmin))
+
+    app.add_handler(CallbackQueryHandler(on_check, pattern=r"^chk:\d+$"))
+    app.add_handler(CallbackQueryHandler(on_next, pattern=r"^next$"))
+    app.add_handler(CallbackQueryHandler(on_cancel, pattern=r"^cx:\d+$"))
+    app.add_handler(CallbackQueryHandler(on_buy, pattern=r"^buy:\d+$"))
+    app.add_handler(CallbackQueryHandler(on_pay_review, pattern=r"^pay_(ok|no):\d+$"))
+
+    app.add_handler(MessageHandler(filters.PHOTO | filters.Document.IMAGE, on_receipt))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
+    app.run_polling()
+
+
+if __name__ == "__main__":
+    main()
