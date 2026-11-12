@@ -1,4 +1,4 @@
-
+import os
 import asyncio
 import sqlite3
 import logging
@@ -12,8 +12,7 @@ from telegram.ext import (
 
 logging.basicConfig(level=logging.INFO)
 
-# توکن را از متغیر محیطی بخوان (توکن قبلی لو رفته، حتماً از BotFather عوضش کن)
-TOKEN = os.getenv("BOT_TOKEN", "PUT_NEW_TOKEN_HERE")
+TOKEN = os.getenv("BOT_TOKEN", "9221180526:AAGXly8l7LFMbg1UY4vTfoc-o7EdcZE37sA")
 DB_PATH = os.getenv("DB_PATH", "bot.db")
 
 FORCE_CHANNEL = "@NULLVASET"        # کانال اجباری
@@ -222,3 +221,354 @@ def order_view(order):
         [InlineKeyboardButton("بعدی ⏭", callback_data="next")],
     ])
     return text, kb
+
+
+async def earn(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    ensure_user(uid)
+    order = next_order(uid)
+    if not order:
+        await update.message.reply_text("فعلاً کانالی برای عضویت نیست. بعداً سر بزن 🙏")
+        return
+    text, kb = order_view(order)
+    await update.message.reply_text(text, reply_markup=kb)
+
+
+async def on_next(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    order = next_order(q.from_user.id)
+    if not order:
+        await q.edit_message_text("الان کانال دیگری نیست. بعداً سر بزن 🙏")
+        return
+    text, kb = order_view(order)
+    await q.edit_message_text(text, reply_markup=kb)
+
+
+async def on_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    uid = q.from_user.id
+    order_id = int(q.data.split(":")[1])
+    with db() as con:
+        order = con.execute("SELECT * FROM orders WHERE id=?", (order_id,)).fetchone()
+    if not order or not order["active"]:
+        await q.answer("این سفارش دیگر فعال نیست.", show_alert=True)
+        return
+    try:
+        m = await context.bot.get_chat_member(order["chat_id"], uid)
+        joined = m.status in ("member", "administrator", "creator")
+    except Exception:
+        joined = False
+    if not joined:
+        await q.answer("❌ هنوز عضو کانال نشدی!", show_alert=True)
+        return
+    owner_notify = None
+    with db() as con:
+        cur = con.execute(
+            "INSERT OR IGNORE INTO joins(user_id, order_id, joined_at) "
+            "VALUES(?,?,strftime('%s','now'))", (uid, order_id)
+        )
+        if cur.rowcount == 0:
+            await q.answer("قبلاً سکه‌اش را گرفتی.", show_alert=True)
+            return
+        con.execute("UPDATE users SET coins=coins+? WHERE id=?", (REWARD, uid))
+        con.execute("UPDATE orders SET done=done+1 WHERE id=?", (order_id,))
+        o = con.execute("SELECT * FROM orders WHERE id=?", (order_id,)).fetchone()
+        if o["done"] >= o["target"]:
+            con.execute("UPDATE orders SET active=0 WHERE id=?", (order_id,))
+            owner_notify = o
+    await q.answer(f"✅ {REWARD} سکه دریافت کردی!", show_alert=True)
+    if owner_notify:
+        try:
+            await context.bot.send_message(
+                owner_notify["owner_id"],
+                f"🎉 سفارش #{owner_notify['id']} کانال {owner_notify['username']} "
+                f"کامل شد ({owner_notify['target']} عضو).",
+            )
+        except Exception:
+            pass
+    nxt = next_order(uid)
+    if nxt:
+        text, kb = order_view(nxt)
+        await q.edit_message_text(text, reply_markup=kb)
+    else:
+        await q.edit_message_text("الان کانال دیگری نیست. آفرین! 🙏")
+
+
+async def account(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    coins = get_coins(update.effective_user.id)
+    await update.message.reply_text(
+        f"💰 موجودی: {coins} سکه\n\n"
+        f"هر عضویت = {REWARD} سکه\n"
+        f"هر عضو سفارشی = {PRICE} سکه\n"
+        f"⚠️ خروج از هر کانالی که با آن سکه گرفته‌ای (حتی بعد از چند روز یا ماه) = "
+        f"{PENALTY} سکه جریمه (حداکثر تا صفر شدن موجودی)\n\n"
+        f"برای خرید سکه از «{BTN_BUY}» استفاده کن."
+    )
+
+
+async def support(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        f"🆘 پشتیبانی\n\nبرای هر مشکل یا سوالی به این آیدی پیام بده:\n{SUPPORT_ID}"
+    )
+
+
+def order_status_text(r):
+    pct = int(r["done"] * 100 / r["target"]) if r["target"] else 0
+    filled = pct // 10
+    bar = "▓" * filled + "░" * (10 - filled)
+    if r["cancelled"]:
+        st = "لغو شده ❌"
+    elif r["active"]:
+        st = "در حال انجام 🔄"
+    else:
+        st = "تکمیل شده ✅"
+    return (
+        f"🆔 سفارش #{r['id']}\n"
+        f"📢 {r['username']}\n"
+        f"{bar} {pct}%\n"
+        f"👥 {r['done']} از {r['target']} عضو\n"
+        f"وضعیت: {st}"
+    )
+
+
+async def my_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    with db() as con:
+        rows = con.execute(
+            "SELECT * FROM orders WHERE owner_id=? ORDER BY id DESC LIMIT 10", (uid,)
+        ).fetchall()
+    if not rows:
+        await update.message.reply_text("هنوز سفارشی نداری.")
+        return
+    texts, buttons = [], []
+    for r in rows:
+        texts.append(order_status_text(r))
+        if r["active"]:
+            buttons.append([InlineKeyboardButton(
+                f"❌ لغو سفارش #{r['id']}", callback_data=f"cx:{r['id']}")])
+    await update.message.reply_text(
+        "\n\n".join(texts),
+        reply_markup=InlineKeyboardMarkup(buttons) if buttons else None,
+    )
+
+
+async def on_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    uid = q.from_user.id
+    oid = int(q.data.split(":")[1])
+    with db() as con:
+        o = con.execute(
+            "SELECT * FROM orders WHERE id=? AND owner_id=?", (oid, uid)
+        ).fetchone()
+        if not o or not o["active"]:
+            await q.answer("این سفارش قابل لغو نیست.", show_alert=True)
+            return
+        refund = max(o["target"] - o["done"], 0) * PRICE
+        con.execute("UPDATE orders SET active=0, cancelled=1 WHERE id=?", (oid,))
+        con.execute("UPDATE users SET coins=coins+? WHERE id=?", (refund, uid))
+    await q.answer(f"سفارش لغو شد و {refund} سکه برگشت.", show_alert=True)
+    await q.edit_message_text(f"❌ سفارش #{oid} لغو شد و {refund} سکه به حسابت برگشت.")
+
+
+async def order_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    coins = get_coins(update.effective_user.id)
+    if coins < PRICE:
+        await update.message.reply_text(
+            f"سکه‌ات کافی نیست (حداقل {PRICE} سکه). "
+            f"اول با «{BTN_EARN}» سکه جمع کن یا از «{BTN_BUY}» سکه بخر."
+        )
+        return
+    context.user_data["state"] = "channel"
+    await update.message.reply_text(
+        "ربات را اول در کانالت «ادمین» کن، بعد یوزرنیم کانال را بفرست (مثل @mychannel).\n"
+        "برای لغو: /start"
+    )
+
+
+# ---------- خرید سکه (کارت به کارت) ----------
+async def buy_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    rows = [
+        [InlineKeyboardButton(f"🪙 {c} سکه — {p:,} تومان", callback_data=f"buy:{i}")]
+        for i, (c, p) in enumerate(PACKAGES)
+    ]
+    await update.message.reply_text(
+        "💳 خرید سکه\nیکی از بسته‌ها را انتخاب کن:\n\n"
+        f"🆘 پشتیبانی: {SUPPORT_ID}",
+        reply_markup=InlineKeyboardMarkup(rows),
+    )
+
+
+async def on_buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    uid = q.from_user.id
+    with db() as con:
+        pend = con.execute(
+            "SELECT COUNT(*) c FROM payments WHERE user_id=? AND status='pending'", (uid,)
+        ).fetchone()["c"]
+    if pend:
+        await q.message.reply_text(
+            "⏳ یک رسید در انتظار تایید داری. بعد از بررسی مدیر می‌توانی خرید جدید بزنی."
+        )
+        return
+    idx = int(q.data.split(":")[1])
+    if idx < 0 or idx >= len(PACKAGES):
+        return
+    coins, price = PACKAGES[idx]
+    context.user_data.clear()
+    context.user_data.update(state="receipt", pkg=idx)
+    await q.message.reply_text(
+        f"🪙 بسته‌ی انتخابی: {coins} سکه\n"
+        f"💵 مبلغ: {price:,} تومان\n\n"
+        f"💳 شماره کارت:\n{CARD_NUMBER}\n"
+        f"👤 به نام: {CARD_OWNER}\n\n"
+        "بعد از واریز، «عکس رسید» را همینجا بفرست.\n"
+        f"🆘 مشکل داشتی: {SUPPORT_ID}\n"
+        "برای لغو: /start"
+    )
+
+
+async def on_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    uname = update.effective_user.username
+    msg = update.message
+    if context.user_data.get("state") != "receipt":
+        await msg.reply_text(
+            f"برای خرید سکه از «{BTN_BUY}» استفاده کن.", reply_markup=menu_for(uid)
+        )
+        return
+    if msg.photo:
+        file_id, is_photo = msg.photo[-1].file_id, 1
+    elif msg.document:
+        file_id, is_photo = msg.document.file_id, 0
+    else:
+        return
+    idx = context.user_data.get("pkg", 0)
+    coins, price = PACKAGES[idx]
+    with db() as con:
+        cur = con.execute(
+            "INSERT INTO payments(user_id, username, coins, price, file_id, is_photo, status, created_at) "
+            "VALUES(?,?,?,?,?,?,'pending',strftime('%s','now'))",
+            (uid, uname, coins, price, file_id, is_photo),
+        )
+        pid = cur.lastrowid
+    context.user_data.clear()
+    await msg.reply_text(
+        "✅ رسیدت ثبت شد و برای مدیر ارسال شد.\n"
+        "بعد از تایید، سکه‌ها به حسابت اضافه می‌شود و خبرت می‌کنم.",
+        reply_markup=menu_for(uid),
+    )
+    await send_payment_to(context, list(all_admin_ids()), pid)
+
+
+def payment_caption(p):
+    uname = p["username"]
+    user_line = f"@{uname}" if uname else f"(بدون یوزرنیم) {p['user_id']}"
+    return (
+        f"💳 درخواست خرید #{p['id']}\n"
+        f"👤 کاربر: {user_line}\n"
+        f"🪙 {p['coins']} سکه\n"
+        f"💵 {p['price']:,} تومان"
+    )
+
+
+async def send_payment_to(context, admin_ids, pid):
+    with db() as con:
+        p = con.execute("SELECT * FROM payments WHERE id=?", (pid,)).fetchone()
+    if not p:
+        return 0
+    kb = InlineKeyboardMarkup([[
+        InlineKeyboardButton("تایید ✅", callback_data=f"pay_ok:{pid}"),
+        InlineKeyboardButton("رد ❌", callback_data=f"pay_no:{pid}"),
+    ]])
+    sent = 0
+    for aid in admin_ids:
+        try:
+            if p["is_photo"]:
+                await context.bot.send_photo(
+                    aid, p["file_id"], caption=payment_caption(p), reply_markup=kb
+                )
+            else:
+                await context.bot.send_document(
+                    aid, p["file_id"], caption=payment_caption(p), reply_markup=kb
+                )
+            sent += 1
+        except Exception:
+            pass
+    return sent
+
+
+async def on_pay_review(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    admin_id = q.from_user.id
+    if not is_admin(admin_id):
+        await q.answer("فقط مدیر می‌تواند.", show_alert=True)
+        return
+    action, pid = q.data.split(":")
+    pid = int(pid)
+    approve = action == "pay_ok"
+    with db() as con:
+        p = con.execute("SELECT * FROM payments WHERE id=?", (pid,)).fetchone()
+    if not p:
+        await q.answer("پیدا نشد.", show_alert=True)
+        return
+    ensure_user(p["user_id"])
+    new_status = "approved" if approve else "rejected"
+    with db() as con:
+        cur = con.execute(
+            "UPDATE payments SET status=? WHERE id=? AND status='pending'", (new_status, pid)
+        )
+        if cur.rowcount == 0:
+            await q.answer("این درخواست قبلاً بررسی شده.", show_alert=True)
+            return
+        if approve:
+            con.execute(
+                "UPDATE users SET coins=coins+? WHERE id=?", (p["coins"], p["user_id"])
+            )
+    label = "✅ تایید شد" if approve else "❌ رد شد"
+    await q.answer(label, show_alert=True)
+    try:
+        await q.edit_message_caption(
+            caption=f"{payment_caption(p)}\n\n{label} (مدیر: {admin_id})"
+        )
+    except Exception:
+        pass
+    try:
+        if approve:
+            await context.bot.send_message(
+                p["user_id"],
+                f"🎉 خریدت تایید شد!\n{p['coins']} سکه به حسابت اضافه شد.\n"
+                f"💰 موجودی فعلی: {get_coins(p['user_id'])} سکه",
+            )
+        else:
+            await context.bot.send_message(
+                p["user_id"],
+                "❌ رسیدت تایید نشد. اگر اشتباه شده، دوباره از «خرید سکه» رسید درست بفرست "
+                f"یا با پشتیبانی تماس بگیر: {SUPPORT_ID}",
+            )
+    except Exception:
+        pass
+
+
+async def cmd_pending(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    if not is_admin(uid):
+        return
+    with db() as con:
+        ids = [r["id"] for r in con.execute(
+            "SELECT id FROM payments WHERE status='pending' ORDER BY id").fetchall()]
+    if not ids:
+        await update.message.reply_text("رسید در انتظاری نیست ✅")
+        return
+    for pid in ids:
+        await send_payment_to(context, [uid], pid)
+
+
+# ---------- مدیریت ----------
+async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        return
+    with db() as con:
+        users = con.execute("SELECT COUNT(*) c FROM users").fetchone()["c"]
+        total 
