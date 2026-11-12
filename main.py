@@ -544,49 +544,15 @@ async def check_leavers(context: ContextTypes.DEFAULT_TYPE):
         with db() as con:
             cur = con.execute(
                 "UPDATE joins SET penalized=1 WHERE user_id=? AND order_id=? AND penalized=0",
-                (r["user_id"], r["order_id"]),
-# ---------- جریمه‌ی خروج (بدون محدودیت زمانی) ----------
-async def check_leavers(context: ContextTypes.DEFAULT_TYPE):
-    # هر بار قدیمی‌ترین چک‌نشده‌ها را برمی‌دارد تا همه‌ی عضویت‌ها نوبتی چک شوند
-    with db() as con:
-        rows = con.execute(
-            """SELECT j.user_id, j.order_id, o.chat_id, o.username
-               FROM joins j JOIN orders o ON o.id=j.order_id
-               WHERE j.penalized=0
-               ORDER BY j.last_checked ASC
-               LIMIT ?""",
-            (CHECK_BATCH,),
-        ).fetchall()
-
-    for r in rows:
-        await asyncio.sleep(0.1)  # جلوگیری از محدودیت تلگرام
-        with db() as con:
-            con.execute(
-                "UPDATE joins SET last_checked=strftime('%s','now') "
-                "WHERE user_id=? AND order_id=?",
-                (r["user_id"], r["order_id"]),
-            )
-        try:
-            m = await context.bot.get_chat_member(r["chat_id"], r["user_id"])
-        except Exception:
-            continue  # مثلاً ربات از کانال حذف شده؛ رد می‌شویم
-        if m.status in ("member", "administrator", "creator"):
-            continue
-
-        with db() as con:
-            cur = con.execute(
-                "UPDATE joins SET penalized=1 WHERE user_id=? AND order_id=? AND penalized=0",
-                (r["user_id"], r["order_id"]),
-            )
+                (r["user_id"], r["order_id"]),)
             if cur.rowcount == 0:
                 continue
             row = con.execute("SELECT coins FROM users WHERE id=?", (r["user_id"],)).fetchone()
             have = max(row["coins"], 0) if row else 0
-            deducted = min(have, PENALTY)  # موجودی هیچ‌وقت منفی نمی‌شود
+            deducted = min(have, PENALTY)
             con.execute(
                 "UPDATE users SET coins=coins-? WHERE id=?", (deducted, r["user_id"])
             )
-            # عضو از شمارش کم می‌شود؛ سفارش لغوشده دوباره فعال نمی‌شود
             con.execute(
                 "UPDATE orders SET done=MAX(done-1,0), "
                 "active=CASE WHEN cancelled=1 THEN 0 ELSE 1 END WHERE id=?",
@@ -609,18 +575,4 @@ def main():
     app.add_handler(TypeHandler(Update, force_join), group=-1)
     app.job_queue.run_repeating(check_leavers, interval=CHECK_EVERY, first=60)
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("admin", admin_panel))
-    app.add_handler(CommandHandler("addcoins", cmd_addcoins))
-    app.add_handler(CommandHandler("broadcast", cmd_broadcast))
-    app.add_handler(CommandHandler("addadmin", cmd_addadmin))
-    app.add_handler(CommandHandler("deladmin", cmd_deladmin))
-    app.add_handler(CallbackQueryHandler(on_check, pattern=r"^chk:\d+$"))
-    app.add_handler(CallbackQueryHandler(on_next, pattern=r"^next$"))
-    app.add_handler(CallbackQueryHandler(on_cancel, pattern=r"^cx:\d+$"))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
-    app.run_polling()
-
-
-if __name__ == "__main__":
-    main()
+    app.add_handler(CommandHandler("start", start
