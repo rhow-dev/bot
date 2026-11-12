@@ -575,7 +575,7 @@ def main():
     app.add_handler(TypeHandler(Update, force_join), group=-1)
     app.job_queue.run_repeating(check_leavers, interval=CHECK_EVERY, first=60)
 
-    app.add_handler(CommandHandler("start", startapp.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("admin", admin_panel))
     app.add_handler(CommandHandler("addcoins", cmd_addcoins))
     app.add_handler(CommandHandler("broadcast", cmd_broadcast))
