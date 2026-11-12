@@ -571,4 +571,273 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     with db() as con:
         users = con.execute("SELECT COUNT(*) c FROM users").fetchone()["c"]
-        total 
+        total# ---------- مدیریت ----------
+async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        return
+    with db() as con:
+        users = con.execute("SELECT COUNT(*) c FROM users").fetchone()["c"]
+        total = con.execute("SELECT COUNT(*) c FROM orders").fetchone()["c"]
+        active = con.execute("SELECT COUNT(*) c FROM orders WHERE active=1").fetchone()["c"]
+        joins = con.execute("SELECT COUNT(*) c FROM joins").fetchone()["c"]
+        penal = con.execute("SELECT COUNT(*) c FROM joins WHERE penalized=1").fetchone()["c"]
+        pend = con.execute("SELECT COUNT(*) c FROM payments WHERE status='pending'").fetchone()["c"]
+        sold = con.execute(
+            "SELECT COALESCE(SUM(price),0) s FROM payments WHERE status='approved'"
+        ).fetchone()["s"]
+    await update.message.reply_text(
+        "🛠 پنل مدیریت\n\n"
+        f"👥 کاربران: {users}\n"
+        f"📦 کل سفارش‌ها: {total}\n"
+        f"🟢 سفارش‌های فعال: {active}\n"
+        f"✅ کل عضویت‌های انجام‌شده: {joins}\n"
+        f"⚠️ جریمه‌شده‌ها (خروج): {penal}\n"
+        f"🧾 رسیدهای در انتظار: {pend}\n"
+        f"💰 مجموع فروش تاییدشده: {sold:,} تومان\n\n"
+        "دستورها:\n"
+        "/pending ← نمایش رسیدهای در انتظار تایید\n"
+        "/addcoins آیدی_عددی تعداد ← افزودن/کسر سکه (عدد منفی = کسر)\n"
+        "/broadcast متن ← ارسال پیام به همه‌ی کاربران\n"
+        "/addadmin آیدی_عددی ← افزودن مدیر (فقط مدیر اصلی)\n"
+        "/deladmin آیدی_عددی ← حذف مدیر (فقط مدیر اصلی)"
+    )
+
+
+async def cmd_addcoins(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        return
+    try:
+        target = int(context.args[0])
+        amount = int(context.args[1])
+    except Exception:
+        await update.message.reply_text("فرمت درست:\n/addcoins آیدی_عددی تعداد")
+        return
+    ensure_user(target)
+    with db() as con:
+        con.execute("UPDATE users SET coins=MAX(coins+?,0) WHERE id=?", (amount, target))
+    await update.message.reply_text(f"✅ انجام شد. موجودی جدید: {get_coins(target)} سکه")
+    try:
+        await context.bot.send_message(target, f"💰 مدیریت {amount:+d} سکه به حسابت اضافه/کم کرد.")
+    except Exception:
+        pass
+
+
+async def cmd_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        return
+    msg = " ".join(context.args).strip()
+    if not msg:
+        await update.message.reply_text("فرمت درست:\n/broadcast متن پیام")
+        return
+    with db() as con:
+        ids = [r["id"] for r in con.execute("SELECT id FROM users").fetchall()]
+    ok = 0
+    for i in ids:
+        try:
+            await context.bot.send_message(i, msg)
+            ok += 1
+        except Exception:
+            pass
+        await asyncio.sleep(0.05)
+    await update.message.reply_text(f"📨 برای {ok} از {len(ids)} نفر ارسال شد.")
+
+
+async def cmd_addadmin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in SUPER_ADMINS:
+        return
+    try:
+        target = int(context.args[0])
+    except Exception:
+        await update.message.reply_text("فرمت درست:\n/addadmin آیدی_عددی")
+        return
+    with db() as con:
+        con.execute("INSERT OR IGNORE INTO admins(id) VALUES(?)", (target,))
+    await update.message.reply_text(f"✅ {target} مدیر شد.")
+
+
+async def cmd_deladmin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in SUPER_ADMINS:
+        return
+    try:
+        target = int(context.args[0])
+    except Exception:
+        await update.message.reply_text("فرمت درست:\n/deladmin آیدی_عددی")
+        return
+    with db() as con:
+        con.execute("DELETE FROM admins WHERE id=?", (target,))
+    await update.message.reply_text(f"✅ {target} از مدیران حذف شد.")
+
+
+# ---------- متن‌ها ----------
+async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    uid = update.effective_user.id
+
+    if text in MENU_BUTTONS:
+        context.user_data.clear()
+        if text == BTN_EARN:
+            return await earn(update, context)
+        if text == BTN_ORDER:
+            return await order_start(update, context)
+        if text == BTN_ACCOUNT:
+            return await account(update, context)
+        if text == BTN_ORDERS:
+            return await my_orders(update, context)
+        if text == BTN_BUY:
+            return await buy_menu(update, context)
+        if text == BTN_SUPPORT:
+            return await support(update, context)
+        if text == BTN_ADMIN:
+            return await admin_panel(update, context)
+
+    state = context.user_data.get("state")
+
+    if state == "receipt":
+        await update.message.reply_text("لطفاً «عکس رسید» را بفرست (نه متن). برای لغو: /start")
+        return
+
+    if state == "channel":
+        if not text.startswith("@"):
+            await update.message.reply_text("یوزرنیم باید با @ شروع شود.")
+            return
+        try:
+            chat = await context.bot.get_chat(text)
+            me = await context.bot.get_chat_member(chat.id, context.bot.id)
+            user_m = await context.bot.get_chat_member(chat.id, uid)
+        except Exception:
+            await update.message.reply_text("کانال پیدا نشد یا ربات داخلش ادمین نیست.")
+            return
+        if chat.type != "channel":
+            await update.message.reply_text("این یک کانال نیست.")
+            return
+        if me.status != "administrator":
+            await update.message.reply_text("ربات باید در کانال ادمین باشد.")
+            return
+        if user_m.status not in ("administrator", "creator"):
+            await update.message.reply_text("فقط ادمین/مالک کانال می‌تواند سفارش بدهد.")
+            return
+        context.user_data.update(
+            state="qty", chat_id=chat.id, username=text, title=chat.title
+        )
+        mx = get_coins(uid) // PRICE
+        await update.message.reply_text(f"عضو چند نفر می‌خواهی؟ (حداکثر {mx})")
+        return
+
+    if state == "qty":
+        if not text.isdigit() or int(text) < 1:
+            await update.message.reply_text("یک عدد معتبر بفرست.")
+            return
+        qty = int(text)
+        cost = qty * PRICE
+        with db() as con:
+            coins = con.execute(
+                "SELECT coins FROM users WHERE id=?", (uid,)
+            ).fetchone()["coins"]
+            if cost > coins:
+                await update.message.reply_text(
+                    f"سکه کافی نیست. حداکثر {coins // PRICE} عضو می‌توانی بگیری."
+                )
+                return
+            con.execute("UPDATE users SET coins=coins-? WHERE id=?", (cost, uid))
+            cur = con.execute(
+                "INSERT INTO orders(owner_id, chat_id, username, title, target) VALUES(?,?,?,?,?)",
+                (uid, context.user_data["chat_id"], context.user_data["username"],
+                 context.user_data["title"], qty),
+            )
+            oid = cur.lastrowid
+        context.user_data.clear()
+        await update.message.reply_text(
+            f"✅ سفارش #{oid} ثبت شد: {qty} عضو.\n({cost} سکه کم شد)\n"
+            f"پیشرفت را از «{BTN_ORDERS}» ببین.",
+            reply_markup=menu_for(uid),
+        )
+        return
+
+    await update.message.reply_text("از منوی پایین استفاده کن 👇", reply_markup=menu_for(uid))
+
+
+# ---------- جریمه‌ی خروج (بدون محدودیت زمانی) ----------
+async def check_leavers(context: ContextTypes.DEFAULT_TYPE):
+    # هر بار قدیمی‌ترین چک‌نشده‌ها را برمی‌دارد تا همه‌ی عضویت‌ها نوبتی چک شوند
+    with db() as con:
+        rows = con.execute(
+            """SELECT j.user_id, j.order_id, o.chat_id, o.username
+               FROM joins j JOIN orders o ON o.id=j.order_id
+               WHERE j.penalized=0
+               ORDER BY j.last_checked ASC
+               LIMIT ?""",
+            (CHECK_BATCH,),
+        ).fetchall()
+    for r in rows:
+        await asyncio.sleep(0.1)  # جلوگیری از محدودیت تلگرام
+        with db() as con:
+            con.execute(
+                "UPDATE joins SET last_checked=strftime('%s','now') "
+                "WHERE user_id=? AND order_id=?",
+                (r["user_id"], r["order_id"]),
+            )
+        try:
+            m = await context.bot.get_chat_member(r["chat_id"], r["user_id"])
+        except Exception:
+            continue  # مثلاً ربات از کانال حذف شده؛ رد می‌شویم
+        if m.status in ("member", "administrator", "creator"):
+            continue
+        with db() as con:
+            cur = con.execute(
+                "UPDATE joins SET penalized=1 WHERE user_id=? AND order_id=? AND penalized=0",
+                (r["user_id"], r["order_id"]),
+            )
+            if cur.rowcount == 0:
+                continue
+            row = con.execute(
+                "SELECT coins FROM users WHERE id=?", (r["user_id"],)
+            ).fetchone()
+            have = max(row["coins"], 0) if row else 0
+            deducted = min(have, PENALTY)  # موجودی هیچ‌وقت منفی نمی‌شود
+            con.execute(
+                "UPDATE users SET coins=coins-? WHERE id=?", (deducted, r["user_id"])
+            )
+            # عضو از شمارش کم می‌شود؛ سفارش لغوشده دوباره فعال نمی‌شود
+            con.execute(
+                "UPDATE orders SET done=MAX(done-1,0), "
+                "active=CASE WHEN cancelled=1 THEN 0 ELSE 1 END WHERE id=?",
+                (r["order_id"],),
+            )
+            balance = have - deducted
+        try:
+            await context.bot.send_message(
+                r["user_id"],
+                f"⚠️ از کانال {r['username']} خارج شدی و {deducted} سکه جریمه شدی.\n"
+                f"💰 موجودی فعلی: {balance} سکه",
+            )
+        except Exception:
+            pass
+
+
+def main():
+    init_db()
+    app = Application.builder().token(TOKEN).build()
+    app.add_handler(TypeHandler(Update, force_join), group=-1)
+    app.job_queue.run_repeating(check_leavers, interval=CHECK_EVERY, first=60)
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("admin", admin_panel))
+    app.add_handler(CommandHandler("pending", cmd_pending))
+    app.add_handler(CommandHandler("addcoins", cmd_addcoins))
+    app.add_handler(CommandHandler("broadcast", cmd_broadcast))
+    app.add_handler(CommandHandler("addadmin", cmd_addadmin))
+    app.add_handler(CommandHandler("deladmin", cmd_deladmin))
+
+    app.add_handler(CallbackQueryHandler(on_check, pattern=r"^chk:\d+$"))
+    app.add_handler(CallbackQueryHandler(on_next, pattern=r"^next$"))
+    app.add_handler(CallbackQueryHandler(on_cancel, pattern=r"^cx:\d+$"))
+    app.add_handler(CallbackQueryHandler(on_buy, pattern=r"^buy:\d+$"))
+    app.add_handler(CallbackQueryHandler(on_pay_review, pattern=r"^pay_(ok|no):\d+$"))
+
+    app.add_handler(MessageHandler(filters.PHOTO | filters.Document.IMAGE, on_receipt))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
+    app.run_polling()
+
+
+if __name__ == "__main__":
+    main() 
