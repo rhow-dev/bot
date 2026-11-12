@@ -15,22 +15,20 @@ logging.basicConfig(level=logging.INFO)
 TOKEN = os.getenv("BOT_TOKEN", "9221180526:AAGXly8l7LFMbg1UY4vTfoc-o7EdcZE37sA")
 DB_PATH = os.getenv("DB_PATH", "bot.db")
 
-FORCE_CHANNEL = "@NULLVASET"        # کانال اجباری
-DEFAULT_ADMINS = [7281188442]       # مدیر اصلی
-REWARD = 1                          # سکهی هر عضویت
-PRICE = 2                           # هزینهی هر عضو سفارشی (سکه)
-WELCOME_COINS = 20                  # سکهی هدیه برای هر کاربر جدید
-REFERRAL_REWARD = 10                # سکهی دعوت برای کسی که یک نفر را دعوت می‌کند
-PENALTY = 7                         # جریمهی خروج از کانال (سکه)
-CHECK_EVERY = 600                   # هر چند ثانیه یک دسته چک شود
-CHECK_BATCH = 200                   # در هر نوبت چند عضویت چک شود
+FORCE_CHANNEL = "@NULLVASET"
+DEFAULT_ADMINS = [7281188442]
+REWARD = 1
+PRICE = 2
+WELCOME_COINS = 20
+REFERRAL_REWARD = 10
+PENALTY = 7
+CHECK_EVERY = 600
+CHECK_BATCH = 200
 
-# ---------- تنظیمات خرید سکه ----------
 CARD_NUMBER = "5859-8312-0689-7943"
 CARD_OWNER = "غفوری"
 SUPPORT_ID = "@VERATHB"
 
-# (تعداد سکه، قیمت به تومان)
 PACKAGES = [
     (100, 50000),
     (500, 100000),
@@ -52,7 +50,6 @@ BTN_ADMIN = "🛠 مدیریت"
 MENU_BUTTONS = {BTN_EARN, BTN_ORDER, BTN_ACCOUNT, BTN_ORDERS, BTN_BUY, BTN_SUPPORT, BTN_REF, BTN_ADMIN}
 
 
-# ---------- دیتابیس ----------
 def db():
     con = sqlite3.connect(DB_PATH)
     con.row_factory = sqlite3.Row
@@ -95,7 +92,6 @@ def init_db():
                 created_at INTEGER NOT NULL DEFAULT 0);
             """
         )
-        # مایگریشن برای دیتابیس‌های قدیمی
         for table, col in (
             ("joins", "joined_at INTEGER NOT NULL DEFAULT 0"),
             ("joins", "penalized INTEGER NOT NULL DEFAULT 0"),
@@ -125,11 +121,9 @@ def get_coins(uid):
 
 
 def register_user(uid, ref=None):
-    """کاربر جدید را با سکه‌ی هدیه ثبت می‌کند. اگر با لینک دعوت آمده، به دعوت‌کننده پاداش می‌دهد.
-    آیدی دعوت‌کننده را برمی‌گرداند (برای اطلاع‌رسانی) یا None."""
     with db() as con:
         if con.execute("SELECT 1 FROM users WHERE id=?", (uid,)).fetchone():
-            return None  # قبلاً ثبت شده؛ پاداشی داده نمی‌شود
+            return None
         inviter = None
         if ref and ref != uid and con.execute("SELECT 1 FROM users WHERE id=?", (ref,)).fetchone():
             inviter = ref
@@ -192,111 +186,12 @@ def next_order(uid):
         ).fetchone()
 
 
-# ---------- عضویت اجباری ----------
 async def is_member(bot, uid):
     try:
         m = await bot.get_chat_member(FORCE_CHANNEL, uid)
         return m.status in ("member", "administrator", "creator")
     except Exception:
-        return False
-
-
-def join_kb():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📢 عضویت در کانال", url="https://t.me/NULLVASET")],
-        [InlineKeyboardButton("عضو شدم ✅", callback_data="fj")],
-    ])
-
-
-async def force_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    if not user:
-        return
-    q = update.callback_query
-    # ذخیره‌ی لینک دعوت تا بعد از عضویت در کانال اجباری از دست نرود
-    if update.message and update.message.text and update.message.text.startswith("/start"):
-        r = parse_ref(update.message.text.split()[1:])
-        if r:
-            context.user_data["ref"] = r
-    if q and q.data == "fj":
-        if await is_member(context.bot, user.id):
-            await notify_inviter(context, register_user(user.id, context.user_data.get("ref")))
-            ensure_user(user.id)
-            await q.answer("✅ تایید شد!", show_alert=True)
-            await q.message.reply_text(
-                "حالا می‌توانی از ربات استفاده کنی 👇", reply_markup=menu_for(user.id)
-            )
-        else:
-            await q.answer("❌ هنوز عضو کانال نشدی!", show_alert=True)
-        raise ApplicationHandlerStop
-    if is_admin(user.id) or await is_member(context.bot, user.id):
-        return
-    text = "📢 برای استفاده از ربات اول باید در کانال ما عضو شوی."
-    if q:
-        await q.answer("اول در کانال عضو شو!", show_alert=True)
-        await q.message.reply_text(text, reply_markup=join_kb())
-    elif update.message:
-        await update.message.reply_text(text, reply_markup=join_kb())
-    raise ApplicationHandlerStop
-
-
-# ---------- کاربران ----------
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = update.effective_user.id
-    ref = parse_ref(context.args) or context.user_data.get("ref")
-    await notify_inviter(context, register_user(uid, ref))
-    ensure_user(uid)
-    context.user_data.clear()
-    await update.message.reply_text(
-        "سلام! 👋\nبا عضو شدن در کانال‌ها سکه بگیر و با سکه‌ها برای کانال خودت ممبر سفارش بده.",
-        reply_markup=menu_for(uid),
-    )
-
-
-def order_view(order):
-    uname = order["username"].lstrip("@")
-    name = order["title"] or order["username"]
-    text = (
-        f"📢 کانال: {name}\n"
-        f"🔗 https://t.me/{uname}\n\n"
-        f"در کانال عضو شو و بعد دکمه‌ی «عضو شدم» را بزن تا {REWARD} سکه بگیری.\n"
-        f"⚠️ اگر بعداً از کانال خارج شوی، {PENALTY} سکه جریمه می‌شوی."
-    )
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📢 ورود به کانال", url=f"https://t.me/{uname}")],
-        [InlineKeyboardButton("عضو شدم ✅", callback_data=f"chk:{order['id']}")],
-        [InlineKeyboardButton("بعدی ⏭", callback_data="next")],
-    ])
-    return text, kb
-
-
-async def earn(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = update.effective_user.id
-    ensure_user(uid)
-    order = next_order(uid)
-    if not order:
-        await update.message.reply_text("فعلاً کانالی برای عضویت نیست. بعداً سر بزن 🙏")
-        return
-    text, kb = order_view(order)
-    await update.message.reply_text(text, reply_markup=kb)
-
-
-async def on_next(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query
-    await q.answer()
-    order = next_order(q.from_user.id)
-    if not order:
-        await q.edit_message_text("الان کانال دیگری نیست. بعداً سر بزن 🙏")
-        return
-    text, kb = order_view(order)
-    await q.edit_message_text(text, reply_markup=kb)
-
-
-async def on_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query
-    uid = q.from_user.id
-    order_id = int(q.data.split(":")[1])
-    with db() as con:
+        return Falsecon:
         order = con.execute("SELECT * FROM orders WHERE id=?", (order_id,)).fetchone()
     if not order or not order["active"]:
         await q.answer("این سفارش دیگر فعال نیست.", show_alert=True)
@@ -449,7 +344,6 @@ async def order_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# ---------- خرید سکه (کارت به کارت) ----------
 async def buy_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     rows = [
         [InlineKeyboardButton(f"🪙 {c} سکه — {p:,} تومان", callback_data=f"buy:{i}")]
@@ -628,7 +522,6 @@ async def cmd_pending(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_payment_to(context, [uid], pid)
 
 
-# ---------- مدیریت ----------
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
         return
@@ -723,3 +616,115 @@ async def cmd_deladmin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     with db() as con:
         con.execute("DELETE FROM admins WHERE id=?", (target,))
     await update.message.reply_text(f"✅ {target} از مدیران حذف شد.")
+
+
+async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    uid = update.effective_user.id
+
+    if text in MENU_BUTTONS:
+        context.user_data.clear()
+        if text == BTN_EARN:
+            return await earn(update, context)
+        if text == BTN_ORDER:
+            return await order_start(update, context)
+        if text == BTN_ACCOUNT:
+            return await account(update, context)
+        if text == BTN_ORDERS:
+            return await my_orders(update, context)
+        if text == BTN_BUY:
+            return await buy_menu(update, context)
+        if text == BTN_SUPPORT:
+            return await support(update, context)
+        if text == BTN_REF:
+            return await referral(update, context)
+        if text == BTN_ADMIN:
+            return await admin_panel(update, context)
+
+    state = context.user_data.get("state")
+
+    if state == "receipt":
+        await update.message.reply_text("لطفاً «عکس رسید» را بفرست (نه متن). برای لغو: /start")
+        return
+
+    if state == "channel":
+        if not text.startswith("@"):
+            await update.message.reply_text("یوزرنیم باید با @ شروع شود.")
+            return
+        try:
+            chat = await context.bot.get_chat(text)
+            me = await context.bot.get_chat_member(chat.id, context.bot.id)
+            user_m = await context.bot.get_chat_member(chat.id, uid)
+        except Exception:
+            await update.message.reply_text("کانال پیدا نشد یا ربات داخلش ادمین نیست.")
+            return
+        if chat.type != "channel":
+            await update.message.reply_text("این یک کانال نیست.")
+            return
+        if me.status != "administrator":
+            await update.message.reply_text("ربات باید در کانال ادمین باشد.")
+            return
+        if user_m.status not in ("administrator", "creator"):
+            await update.message.reply_text("فقط ادمین/مالک کانال می‌تواند سفارش بدهد.")
+            return
+        context.user_data.update(
+            state="qty", chat_id=chat.id, username=text, title=chat.title
+        )
+        mx = get_coins(uid) // PRICE
+        await update.message.reply_text(f"عضو چند نفر می‌خواهی؟ (حداکثر {mx})")
+        return
+
+    if state == "qty":
+        if not text.isdigit() or int(text) < 1:
+            await update.message.reply_text("یک عدد معتبر بفرست.")
+            return
+        qty = int(text)
+        cost = qty * PRICE
+        with db() as con:
+            coins = con.execute(
+                "SELECT coins FROM users WHERE id=?", (uid,)
+            ).fetchone()["coins"]
+            if cost > coins:
+                await update.message.reply_text(
+                    f"سکه کافی نیست. حداکثر {coins // PRICE} عضو می‌توانی بگیری."
+                )
+                return
+            con.execute("UPDATE users SET coins=coins-? WHERE id=?", (cost, uid))
+            cur = con.execute(
+                "INSERT INTO orders(owner_id, chat_id, username, title, target) VALUES(?,?,?,?,?)",
+                (uid, context.user_data["chat_id"], context.user_data["username"],
+                 context.user_data["title"], qty),
+            )
+            oid = cur.lastrowid
+        context.user_data.clear()
+        await update.message.reply_text(
+            f"✅ سفارش #{oid} ثبت شد: {qty} عضو.\n({cost} سکه کم شد)\n"
+            f"پیشرفت را از «{BTN_ORDERS}» ببین.",
+            reply_markup=menu_for(uid),
+        )
+        return
+
+    await update.message.reply_text("از منوی پایین استفاده کن 👇", reply_markup=menu_for(uid))
+
+
+async def check_leavers(context: ContextTypes.DEFAULT_TYPE):
+    with db() as con:
+        rows = con.execute(
+            """SELECT j.user_id, j.order_id, o.chat_id, o.username
+               FROM joins j JOIN orders o ON o.id=j.order_id
+               WHERE j.penalized=0
+               ORDER BY j.last_checked ASC
+               LIMIT ?""",
+            (CHECK_BATCH,),
+        ).fetchall()
+    for r in rows:
+        await asyncio.sleep(0.1)
+        with db() as con:
+            con.execute(
+                "UPDATE joins SET last_checked=strftime('%s','now') "
+                "WHERE user_id=? AND order_id=?",
+                (r["user_id"], r["order_id"]),
+            )
+        try:
+            m = await context.bot.get_chat_member(r["chat_id"], r["user_id"])
+        except Excepti
