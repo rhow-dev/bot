@@ -15,7 +15,10 @@ logging.basicConfig(level=logging.INFO)
 TOKEN = "9221180526:AAGXly8l7LFMbg1UY4vTfoc-o7EdcZE37sA"
 DB_PATH = os.getenv("DB_PATH", "bot.db")
 
-FORCE_CHANNEL = "@NULLVASET"        # کانال اجباری
+FORCE_CHANNELS = [
+    "@NULLVASET",
+    "@VILTER_SHOP",
+]        # کانال اجباری
 DEFAULT_ADMINS = [7281188442]       # مدیر اصلی
 REWARD = 1                          # سکه‌ی هر عضویت
 PRICE = 2                           # هزینه‌ی هر عضو سفارشی (سکه)
@@ -231,7 +234,7 @@ async def force_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
         raise ApplicationHandlerStop
     if is_admin(user.id) or await is_member(context.bot, user.id):
         return
-    text = "📢 برای استفاده از ربات اول باید در کانال ما عضو شوی."
+    text = "📢 برای استفاده از ربات اول باید در هر دو کانال ما عضو شوی."
     if q:
         await q.answer("اول در کانال عضو شو!", show_alert=True)
         await q.message.reply_text(text, reply_markup=join_kb())
@@ -240,19 +243,21 @@ async def force_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
     raise ApplicationHandlerStop
 
 
-# ---------- کاربران ----------
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = update.effective_user.id
-    ref = parse_ref(context.args) or context.user_data.get("ref")
-    await notify_inviter(context, register_user(uid, ref))
-    ensure_user(uid)
-    context.user_data.clear()
-    await update.message.reply_text(
-        "سلام! 👋\nبا عضو شدن در کانال‌ها سکه بگیر و با سکه‌ها برای کانال خودت ممبر سفارش بده.",
-        reply_markup=menu_for(uid),
-    )
-
-
+async def is_member(bot, uid):
+    for ch in FORCE_CHANNELS:
+        try:
+            m = await bot.get_chat_member(ch, uid)
+            if m.status not in ("member", "administrator", "creator"):
+                return False
+        except Exception:
+            return False
+    return Truedef join_kb():
+    rows = [
+        [InlineKeyboardButton(f"📢 عضویت در {ch}", url=f"https://t.me/{ch.lstrip('@')}")]
+        for ch in FORCE_CHANNELS
+    ]
+    rows.append([InlineKeyboardButton("عضو شدم ✅", callback_data="fj")])
+    return InlineKeyboardMarkup(rows)
 def order_view(order):
     uname = order["username"].lstrip("@")
     name = order["title"] or order["username"]
