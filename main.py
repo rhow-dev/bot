@@ -251,7 +251,8 @@ async def is_member(bot, uid):
                 return False
         except Exception:
             return False
-    return Truedef join_kb():
+    return Truedef
+    join_kb():
     rows = [
         [InlineKeyboardButton(f"📢 عضویت در {ch}", url=f"https://t.me/{ch.lstrip('@')}")]
         for ch in FORCE_CHANNELS
