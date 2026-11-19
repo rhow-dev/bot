@@ -194,17 +194,23 @@ def next_order(uid):
             (uid, uid),
         ).fetchone()
 
-
-# ---------- عضویت اجباری ----------
 async def is_member(bot, uid):
-    try:
-        m = await bot.get_chat_member(FORCE_CHANNEL, uid)
-        return m.status in ("member", "administrator", "creator")
-    except Exception:
+    for ch in FORCE_CHANNELS:
+        try:
+            m = await bot.get_chat_member(ch, uid)
+            if m.status not in ("member", "administrator", "creator"):
+                return False
+        except Exception:
+            return False
+    return True
         return False
-
-
 def join_kb():
+    rows = [
+        [InlineKeyboardButton(f"📢 عضویت در {ch}", url=f"https://t.me/{ch.lstrip('@')}")]
+        for ch in FORCE_CHANNELS
+    ]
+    rows.append([InlineKeyboardButton("عضو شدم ✅", callback_data="fj")])
+    return InlineKeyboardMarkup(rows)
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("📢 عضویت در کانال", url="https://t.me/NULLVASET")],
         [InlineKeyboardButton("عضو شدم ✅", callback_data="fj")],
