@@ -882,7 +882,9 @@ async def check_leavers(context: ContextTypes.DEFAULT_TYPE):
             pass
 
 
-def main():
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("سلام! خوش اومدید.")async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("سلام! خوش اومدید.")def main():
     init_db()
     app = Application.builder().token(TOKEN).build()
     app.add_handler(TypeHandler(Update, force_join), group=-1)
