@@ -882,12 +882,13 @@ async def check_leavers(context: ContextTypes.DEFAULT_TYPE):
             pass
 
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("سلام! خوش اومدید.")async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("سلام! خوش اومدید.")def main():
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):await update.message.reply_text("سلام! خوش اومدید.")
+        await update.message.reply_text("سلام!")
+def main():
     init_db()
-    app = Application.builder().token(TOKEN).build()
-    app.add_handler(TypeHandler(Update, force_join), group=-1)
+        app = Application.builder().token(TOKEN).build()
+    
+app.add_handler(TypeHandler(Update, force_join), group=-1)
     app.job_queue.run_repeating(check_leavers, interval=CHECK_EVERY, first=60)
 
     app.add_handler(CommandHandler("start", start))
