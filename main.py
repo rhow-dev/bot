@@ -559,8 +559,8 @@ async def send_payment_to(context, admin_ids, pid):
     for aid in admin_ids:
         try:
             if p["is_photo"]:
-                await context.bot.send_photo(
-        async def on_pay_review(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+async def on_pay_review(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     admin_id = q.from_user.id
     if not is_admin(admin_id):
