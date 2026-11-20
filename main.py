@@ -12,13 +12,15 @@ from telegram.ext import (
 
 logging.basicConfig(level=logging.INFO)
 
-TOKEN = "9221180526:AAGXly8l7LFMbg1UY4vTfoc-o7EdcZE37sA"
+# اگر در Railway متغیر BOT_TOKEN را بسازی، همان استفاده می‌شود
+TOKEN = os.getenv("BOT_TOKEN", "9221180526:AAGXly8l7LFMbg1UY4vTfoc-o7EdcZE37sA")
 DB_PATH = os.getenv("DB_PATH", "bot.db")
 
+# کانال‌های اجباری (ربات باید در همه‌ی آن‌ها ادمین باشد)
 FORCE_CHANNELS = [
     "@NULLVASET",
     "@VILTER_SHOP",
-]        # کانال اجباری
+]
 DEFAULT_ADMINS = [7281188442]       # مدیر اصلی
 REWARD = 1                          # سکه‌ی هر عضویت
 PRICE = 2                           # هزینه‌ی هر عضو سفارشی (سکه)
@@ -194,6 +196,8 @@ def next_order(uid):
             (uid, uid),
         ).fetchone()
 
+
+# ---------- عضویت اجباری ----------
 async def is_member(bot, uid):
     for ch in FORCE_CHANNELS:
         try:
@@ -203,6 +207,8 @@ async def is_member(bot, uid):
         except Exception:
             return False
     return True
+
+
 def join_kb():
     rows = [
         [InlineKeyboardButton(f"📢 عضویت در {ch}", url=f"https://t.me/{ch.lstrip('@')}")]
@@ -210,10 +216,6 @@ def join_kb():
     ]
     rows.append([InlineKeyboardButton("عضو شدم ✅", callback_data="fj")])
     return InlineKeyboardMarkup(rows)
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📢 عضویت در کانال", url="https://t.me/NULLVASET")],
-        [InlineKeyboardButton("عضو شدم ✅", callback_data="fj")],
-    ])
 
 
 async def force_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -235,35 +237,32 @@ async def force_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "حالا می‌توانی از ربات استفاده کنی 👇", reply_markup=menu_for(user.id)
             )
         else:
-            await q.answer("❌ هنوز عضو کانال نشدی!", show_alert=True)
+            await q.answer("❌ هنوز عضو کانال‌ها نشدی!", show_alert=True)
         raise ApplicationHandlerStop
     if is_admin(user.id) or await is_member(context.bot, user.id):
         return
     text = "📢 برای استفاده از ربات اول باید در هر دو کانال ما عضو شوی."
     if q:
-        await q.answer("اول در کانال عضو شو!", show_alert=True)
+        await q.answer("اول در کانال‌ها عضو شو!", show_alert=True)
         await q.message.reply_text(text, reply_markup=join_kb())
     elif update.message:
         await update.message.reply_text(text, reply_markup=join_kb())
     raise ApplicationHandlerStop
 
 
-async def is_member(bot, uid):
-    for ch in FORCE_CHANNELS:
-        try:
-            m = await bot.get_chat_member(ch, uid)
-            if m.status not in ("member", "administrator", "creator"):
-                return False
-        except Exception:
-            return False
-    return Truedef
-def join_kb():
-    rows = [
-        [InlineKeyboardButton(f"📢 عضویت در {ch}", url=f"https://t.me/{ch.lstrip('@')}")]
-        for ch in FORCE_CHANNELS
-    ]
-    rows.append([InlineKeyboardButton("عضو شدم ✅", callback_data="fj")])
-    return InlineKeyboardMarkup(rows)
+# ---------- کاربران ----------
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    ref = parse_ref(context.args) or context.user_data.get("ref")
+    await notify_inviter(context, register_user(uid, ref))
+    ensure_user(uid)
+    context.user_data.clear()
+    await update.message.reply_text(
+        "سلام! 👋\nبا عضو شدن در کانال‌ها سکه بگیر و با سکه‌ها برای کانال خودت ممبر سفارش بده.",
+        reply_markup=menu_for(uid),
+    )
+
+
 def order_view(order):
     uname = order["username"].lstrip("@")
     name = order["title"] or order["username"]
@@ -458,7 +457,9 @@ async def order_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "ربات را اول در کانالت «ادمین» کن، بعد یوزرنیم کانال را بفرست (مثل @mychannel).\n"
         "برای لغو: /start"
     )
-    # ---------- خرید سکه (کارت به کارت) ----------
+
+
+# ---------- خرید سکه (کارت به کارت) ----------
 async def buy_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     rows = [
         [InlineKeyboardButton(f"🪙 {c} سکه — {p:,} تومان", callback_data=f"buy:{i}")]
@@ -559,19 +560,7 @@ async def send_payment_to(context, admin_ids, pid):
         try:
             if p["is_photo"]:
                 await context.bot.send_photo(
-                    aid, p["file_id"], caption=payment_caption(p), reply_markup=kb
-                )
-            else:
-                await context.bot.send_document(
-                    aid, p["file_id"], caption=payment_caption(p), reply_markup=kb
-                )
-            sent += 1
-        except Exception:
-            pass
-    return sent
-
-
-async def on_pay_review(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        async def on_pay_review(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     admin_id = q.from_user.id
     if not is_admin(admin_id):
@@ -882,13 +871,10 @@ async def check_leavers(context: ContextTypes.DEFAULT_TYPE):
             pass
 
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):await update.message.reply_text("سلام! خوش اومدید.")
-        await update.message.reply_text("سلام!")
 def main():
     init_db()
-        app = Application.builder().token(TOKEN).build()
-    
-app.add_handler(TypeHandler(Update, force_join), group=-1)
+    app = Application.builder().token(TOKEN).build()
+    app.add_handler(TypeHandler(Update, force_join), group=-1)
     app.job_queue.run_repeating(check_leavers, interval=CHECK_EVERY, first=60)
 
     app.add_handler(CommandHandler("start", start))
