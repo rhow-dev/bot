@@ -16,11 +16,8 @@ logging.basicConfig(level=logging.INFO)
 TOKEN = os.getenv("BOT_TOKEN", "9221180526:AAGXly8l7LFMbg1UY4vTfoc-o7EdcZE37sA")
 DB_PATH = os.getenv("DB_PATH", "bot.db")
 
-# کانال‌های اجباری (ربات باید در همه‌ی آن‌ها ادمین باشد)
-FORCE_CHANNELS = [
-    "@NULLVASET",
-    "@VILTER_SHOP",
-]
+# کانال اجباری (ربات باید در آن ادمین باشد)
+FORCE_CHANNELS = ["@NULLVASET"]
 DEFAULT_ADMINS = [7281188442]       # مدیر اصلی
 REWARD = 1                          # سکه‌ی هر عضویت
 PRICE = 2                           # هزینه‌ی هر عضو سفارشی (سکه)
@@ -237,13 +234,13 @@ async def force_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "حالا می‌توانی از ربات استفاده کنی 👇", reply_markup=menu_for(user.id)
             )
         else:
-            await q.answer("❌ هنوز عضو کانال‌ها نشدی!", show_alert=True)
+            await q.answer("❌ هنوز عضو کانال نشدی!", show_alert=True)
         raise ApplicationHandlerStop
     if is_admin(user.id) or await is_member(context.bot, user.id):
         return
-    text = "📢 برای استفاده از ربات اول باید در هر دو کانال ما عضو شوی."
+    text = "📢 برای استفاده از ربات اول باید در کانال ما عضو شوی."
     if q:
-        await q.answer("اول در کانال‌ها عضو شو!", show_alert=True)
+        await q.answer("اول در کانال عضو شو!", show_alert=True)
         await q.message.reply_text(text, reply_markup=join_kb())
     elif update.message:
         await update.message.reply_text(text, reply_markup=join_kb())
